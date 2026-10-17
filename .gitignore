@@ -53,3 +53,8 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Binarios y logs del proyecto
+bruteforce
+bruteforce_original
+medicion.log
