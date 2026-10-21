@@ -49,6 +49,22 @@ mpirun -np 1 ./bruteforce -k 123456 -b 20 -o cifrado.bin   # guarda el texto cif
 python3 resumen.py resultados.csv  # promedios, speedup y eficiencia
 ```
 
+python3 resumen.py resultados.csv  # promedios, speedup y eficiencia 
+
+y antes de Se puede cambiar el experimento con variables de entorno, p. ej.
+BITS=22 NPS="1 2 4 8 16" LLAVES="1000 2097151" ./medir.sh 3.
+
+
+
+
+
+# gráficas en img/ (necesita matplotlib; sin sudo se puede instalar así):
+pip3 install --target ~/.local/p2libs matplotlib
+PYTHONPATH=~/.local/p2libs python3 graficas.py resultados.csv img
+```
+
+El informe completo está en [INFORME.md](INFORME.md).
+
 Se puede cambiar el experimento con variables de entorno, p. ej.
 `BITS=22 NPS="1 2 4 8 16" LLAVES="1000 2097151" ./medir.sh 3`.
 
