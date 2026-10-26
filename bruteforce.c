@@ -22,8 +22,31 @@
 #include <mpi.h>
 #include <unistd.h>
 #include <rpc/des_crypt.h>   /* resuelto por compat/rpc/des_crypt.h */
+#include <ifaddrs.h>
+#include <arpa/inet.h>
+#include <net/if.h>
 
 #define TAG_FOUND 1
+
+
+/* Escribe en ip la primera IPv4 de una interfaz física (ignora lo, docker0,
+ * puentes y veth) para mostrar en qué nodo de la red corre cada proceso. */
+static void local_ip(char *ip, size_t n){
+  struct ifaddrs *list, *a;
+  snprintf(ip, n, "?");
+  if(getifaddrs(&list) != 0)
+    return;
+  for(a = list; a; a = a->ifa_next){
+    if(!a->ifa_addr || a->ifa_addr->sa_family != AF_INET)
+      continue;
+    if((a->ifa_flags & IFF_LOOPBACK) || !strncmp(a->ifa_name, "docker", 6) ||
+       !strncmp(a->ifa_name, "br-", 3) || !strncmp(a->ifa_name, "veth", 4))
+      continue;
+    inet_ntop(AF_INET, &((struct sockaddr_in *)a->ifa_addr)->sin_addr, ip, n);
+    break;
+  }
+  freeifaddrs(list);
+}
 
 
 /* Convierte una llave de 56 bits en los 8 bytes que espera DES: toma 7 bits
@@ -105,6 +128,7 @@ static void usage(const char *prog){
     "  -b  tamaño del espacio de búsqueda en bits, 1..56 (default: 56)\n"
     "  -m  reparto de llaves entre procesos (default: bloques)\n"
     "  -o  guarda el texto cifrado en este archivo\n"
+    "  -c  archivo ya cifrado (de otro equipo): no se cifra y -k no hace falta\n"
     "  -q  modo silencioso: solo imprime la línea CSV\n", prog, search);
 }
 
@@ -113,7 +137,7 @@ int main(int argc, char *argv[]){
   int N, id;
   long the_key = -1;
   int bits = 56;
-  int cyclic = 0, quiet = 0;
+  int cyclic = 0, quiet = 0, already_cipher = 0;
   char *path = "texto.txt", *out_path = NULL;
   MPI_Status st;
   MPI_Request req;
@@ -124,7 +148,7 @@ int main(int argc, char *argv[]){
   MPI_Comm_rank(comm, &id);
 
   int opt;
-  while((opt = getopt(argc, argv, "k:f:s:b:m:o:q")) != -1){
+  while((opt = getopt(argc, argv, "k:f:s:b:m:o:c:q")) != -1){
     switch(opt){
       case 'k': the_key = atol(optarg); break;
       case 'f': path = optarg; break;
@@ -132,6 +156,7 @@ int main(int argc, char *argv[]){
       case 'b': bits = atoi(optarg); break;
       case 'm': cyclic = (strcmp(optarg, "ciclico") == 0); break;
       case 'o': out_path = optarg; break;
+      case 'c': path = optarg; already_cipher = 1; break;
       case 'q': quiet = 1; break;
       default:
         if(id == 0) usage(argv[0]);
@@ -140,7 +165,7 @@ int main(int argc, char *argv[]){
     }
   }
   long upper = 1L << bits;   /* el original usaba siempre 2^56 */
-  if(the_key < 0 || the_key >= upper || bits < 1 || bits > 56){
+  if((the_key < 0 && !already_cipher) || the_key >= upper || bits < 1 || bits > 56){
     if(id == 0) usage(argv[0]);
     MPI_Finalize();
     return 1;
@@ -154,7 +179,8 @@ int main(int argc, char *argv[]){
     cipher = read_padded(path, &ciphlen);
     if(!cipher)
       MPI_Abort(comm, 1);
-    encrypt(the_key, cipher, ciphlen);
+    if(!already_cipher)
+      encrypt(the_key, cipher, ciphlen);
     if(!quiet){
       printf("Texto cifrado (%d bytes, hex):\n", ciphlen);
       print_hex(cipher, ciphlen);
@@ -188,8 +214,14 @@ int main(int argc, char *argv[]){
     myupper = (id == N-1) ? upper : range_per_node * (id+1);
     step = 1;
   }
-  if(!quiet)
-    printf("Proceso %d: llaves [%ld, %ld) paso %ld\n", id, mylower, myupper, step);
+  if(!quiet){
+    char host[256], ip[INET_ADDRSTRLEN];
+    gethostname(host, sizeof host);
+    local_ip(ip, sizeof ip);
+    printf("Proceso %d/%d en %s (%s): llaves [%ld, %ld) paso %ld\n",
+           id, N, host, ip, mylower, myupper, step);
+    fflush(stdout);
+  }
 
   long found = -1, mine = -1, tried = 0;
   int ready = 0;
