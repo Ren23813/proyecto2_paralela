@@ -85,6 +85,16 @@ static char *read_padded(const char *path, int *padded_len){
   return buf;
 }
 
+/* Muestra el texto cifrado en hexadecimal, 32 bytes por línea. Es binario
+ * (puede tener bytes nulos o no imprimibles), así que no sirve %s. */
+static void print_hex(const char *buf, int len){
+  for(int i=0; i<len; ++i){
+    printf("%02x", (unsigned char)buf[i]);
+    if(i % 32 == 31 || i == len-1)
+      printf("\n");
+  }
+}
+
 static void usage(const char *prog){
   fprintf(stderr,
     "Uso: mpirun -np N %s -k LLAVE [-f texto.txt] [-s \"frase\"] [-b bits]\n"
@@ -145,6 +155,12 @@ int main(int argc, char *argv[]){
     if(!cipher)
       MPI_Abort(comm, 1);
     encrypt(the_key, cipher, ciphlen);
+    if(!quiet){
+      printf("Texto cifrado (%d bytes, hex):\n", ciphlen);
+      print_hex(cipher, ciphlen);
+      printf("\n");
+      fflush(stdout);
+    }
     if(out_path){
       FILE *f = fopen(out_path, "wb");
       if(f){
